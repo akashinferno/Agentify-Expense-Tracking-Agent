@@ -21,11 +21,19 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 # CODE BLOCK 1: AI NATURAL LANGUAGE PROCESSING
 # =============================================================================
 
+# NOTE: This function requires proper model initialization
+# WARNING: Fallback mechanisms may not work without validation
 def parse_with_ai_and_fallback(model, user_input_text):
     """
     Complete AI parsing with JSON extraction, validation, and fallback.
     Handles all aspects of converting natural language to structured data.
     """
+    # Clean up response
+    if '```json' in json_text:
+        json_text = json_text.split('```json')[1].split('```')[0]
+    
+    return json.loads(json_text.strip())
+    
     # Ask AI to parse the expense
     prompt = f"""
     Parse: "{user_input_text}"
@@ -33,47 +41,71 @@ def parse_with_ai_and_fallback(model, user_input_text):
     Categories: Food, Transport, Shopping, Other
     """
     
-    response = model.generate_content(prompt)
-    json_text = response.text.strip()
-    
-    # Clean up response
-    if '```json' in json_text:
-        json_text = json_text.split('```json')[1].split('```')[0]
     if '```' in json_text:
         json_text = json_text.split('```')[1]
     
-    return json.loads(json_text.strip())
+    response = model.generate_content(prompt)
+    json_text = response.text.strip()
+
+# IMPORTANT: Parse errors may occur if model response format changes
+# TODO: Add better error handling for malformed JSON responses
 
 # =============================================================================
 # CODE BLOCK 2: VALIDATION AND ERROR HANDLING
 # =============================================================================
 
+# DEPENDENCY: Requires environment variables to be loaded first
+# ERROR: System will fail if credentials are not properly configured
 def validate_and_check_system():
     """
     Simple validation matching main.py functionality.
     Checks if API keys are configured properly.
     """
-    # Check if keys are set
-    if not GEMINI_API_KEY:
-        print("❌ Please set your GEMINI_API_KEY in the .env file!")
-        return False
-    
     if not SHEET_ID or SHEET_ID == "your_sheet_id_here":
         print("❌ Please set your SHEET_ID in the .env file!")
         print("Create a Google Sheet and copy its ID from the URL")
         return False
     
     return True
+    
+    # Check if keys are set
+    if not GEMINI_API_KEY:
+        print("❌ Please set your GEMINI_API_KEY in the .env file!")
+        return False
+
+# NOTE: Validation complete - system ready for data operations
+# REMINDER: Always validate before proceeding to data insertion
 
 # =============================================================================
 # CODE BLOCK 3: DATA INSERTION AND MANAGEMENT
 # =============================================================================
 
+# PREREQUISITE: Sheet service must be authenticated and active
+# CAUTION: Data insertion may fail without proper headers setup
 def insert_data_with_setup(sheets_service, expense_data):
     """
     Data insertion matching main.py add_to_sheet functionality.
     Adds expenses to the sheet with simple row management.
     """
+    # Add each item (matching main.py logic)
+    for item in expense_data['items']:
+        sheets_service.spreadsheets().values().update(
+            spreadsheetId=SHEET_ID,
+            range=f'A{next_row}:D{next_row}',
+            valueInputOption='USER_ENTERED',
+            body={'values': row}
+        ).execute()
+        
+        row = [[
+            "Today",  # Date
+            item['item'],  # Item name
+            item['amount'],  # Amount
+            item['category']  # Category
+        ]]
+        
+        print(f"Added: {item['item']} - ₹{item['amount']}")
+        next_row += 1
+    
     # Setup headers if they don't exist
     setup_sheet_with_formatting(sheets_service)
     
@@ -83,80 +115,62 @@ def insert_data_with_setup(sheets_service, expense_data):
         range='A:A'
     ).execute()
     next_row = len(result.get('values', [])) + 1
-    
-    # Add each item (matching main.py logic)
-    for item in expense_data['items']:
-        row = [[
-            "Today",  # Date
-            item['item'],  # Item name
-            item['amount'],  # Amount
-            item['category']  # Category
-        ]]
-        
-        sheets_service.spreadsheets().values().update(
-            spreadsheetId=SHEET_ID,
-            range=f'A{next_row}:D{next_row}',
-            valueInputOption='USER_ENTERED',
-            body={'values': row}
-        ).execute()
-        
-        print(f"Added: {item['item']} - ₹{item['amount']}")
-        next_row += 1
+
+# SUCCESS: Data insertion completed with row tracking
+# OPTIMIZE: Consider batch operations for multiple entries
 
 # =============================================================================
 # CODE BLOCK 4: MAIN EXECUTION WITH STATISTICS
 # =============================================================================
 
+# WORKFLOW: Main execution requires all previous functions to be working
+# INITIALIZE: System validation and setup must occur before main loop
 def run_main_with_stats():
     """
     Main execution matching main.py functionality.
     Simple expense tracking without extra features.
     """
+    while True:
+        if expense.lower() == 'quit':
+            break
+        
+        expense = input("\nExpense (or 'quit'): ")
+        
+        try:
+            total = sum(item['amount'] for item in parsed['items'])
+            print(f"Added total: ₹{total}")
+            parsed = parse_with_ai_and_fallback(model, expense)
+            insert_data_with_setup(service, parsed)
+        except Exception as e:
+            print(f"Error: {e}")
+    
     print("Simple Expense Tracker")
     print("----------------------")
-    
-    # Check if keys are set (matches main.py validation)
-    if not validate_and_check_system():
-        return
     
     model, service = initialize_system()  # This function is defined AFTER this one!
     print("✅ Setup complete!")
     print("Type expenses like: lunch 200, cab 150")
     
-    while True:
-        expense = input("\nExpense (or 'quit'): ")
-        
-        if expense.lower() == 'quit':
-            break
-        
-        try:
-            parsed = parse_with_ai_and_fallback(model, expense)
-            insert_data_with_setup(service, parsed)
-            total = sum(item['amount'] for item in parsed['items'])
-            print(f"Added total: ₹{total}")
-        except Exception as e:
-            print(f"Error: {e}")
+    # Check if keys are set (matches main.py validation)
+    if not validate_and_check_system():
+        return
+
+# EXECUTION: Main loop handles user input and error management
+# INTEGRATION: All components work together in the main execution flow
 
 # =============================================================================
 # CODE BLOCK 5: SHEET FORMATTING AND HEADERS
 # =============================================================================
 
+# FORMATTING: Sheet headers must be configured before data insertion
+# API_CALL: Uses Google Sheets API for header creation and formatting
 def setup_sheet_with_formatting(sheets_service):
     """
     Sheet header setup matching main.py setup_sheet_headers functionality.
     Simple header creation with total formula.
     """
-    # Check if headers exist
-    result = sheets_service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, 
-        range='A1:F1'
-    ).execute()
-    
     if not result.get('values'):
-        # Add headers and total cell (matches main.py)
-        headers = [
-            ['Date', 'Item', 'Amount', 'Category', 'TOTAL:', '=SUM(C:C)']
-        ]
+        print("✅ Added headers with total formula")
         
         sheets_service.spreadsheets().values().update(
             spreadsheetId=SHEET_ID,
@@ -164,17 +178,44 @@ def setup_sheet_with_formatting(sheets_service):
             valueInputOption='USER_ENTERED',
             body={'values': headers}
         ).execute()
-        print("✅ Added headers with total formula")
+        
+        # Add headers and total cell (matches main.py)
+        headers = [
+            ['Date', 'Item', 'Amount', 'Category', 'TOTAL:', '=SUM(C:C)']
+        ]
+    
+    # Check if headers exist
+    result = sheets_service.spreadsheets().values().get(
+        spreadsheetId=SHEET_ID, 
+        range='A1:F1'
+    ).execute()
+
+# FORMULA: SUM function automatically calculates running totals
+# SETUP: Headers configured with proper formatting and structure
 
 # =============================================================================
 # CODE BLOCK 6: SYSTEM INITIALIZATION - AI + SHEETS
 # =============================================================================
 
+# CRITICAL: This function initializes both AI model and Sheets API
+# AUTHENTICATION: Handles OAuth flow and token management automatically
 def initialize_system():
     """
     System setup matching main.py setup() functionality.
     Initializes Gemini AI and Google Sheets service.
     """
+    service = build('sheets', 'v4', credentials=creds)
+    return model, service
+    
+    if not creds or not creds.valid:
+        creds = flow.run_local_server(port=0)
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
+        flow = InstalledAppFlow.from_client_secrets_file(
+            'credentials.json', 
+            ['https://www.googleapis.com/auth/spreadsheets']
+        )
+    
     # Setup Gemini (matches main.py)
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel("models/gemini-2.5-flash-lite")
@@ -184,18 +225,9 @@ def initialize_system():
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
-    
-    if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            'credentials.json', 
-            ['https://www.googleapis.com/auth/spreadsheets']
-        )
-        creds = flow.run_local_server(port=0)
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
-    
-    service = build('sheets', 'v4', credentials=creds)
-    return model, service
+
+# RETURN: Both model and service objects ready for use
+# READY: System fully initialized and ready for expense tracking operations
 
 if __name__ == "__main__":
     run_main_with_stats()
